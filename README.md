@@ -5,6 +5,14 @@
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).
 
 ---
+## Thông tin cá nhân
+Họ và tên: Phùng Quang Minh Huy \
+MSSV: 2A202602610 \
+Cách chạy: `python src/main.py --part 2` (guardrails) · `--part 3` (results.json) · `--part 4` (red-team) \
+Kết quả: `outputs/results.json`, `outputs/attack_results.json`
+
+---
+
 
 ## Thời lượng
 
