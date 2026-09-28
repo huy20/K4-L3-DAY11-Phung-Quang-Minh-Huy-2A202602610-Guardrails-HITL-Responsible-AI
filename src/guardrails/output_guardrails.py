@@ -37,16 +37,25 @@ def content_filter(response: str) -> dict:
         dict with 'safe', 'issues', and 'redacted' keys
     """
     issues = []
+    response = response or ""
     redacted = response
 
-    # PII patterns to check
+    # PII / secret patterns. Order matters: redact the API key before the
+    # generic password/ID patterns so a match is not fragmented first.
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
+        # API key: sk-vinbank-secret-2024 / sk-...
+        "api_key": r"sk-[a-zA-Z0-9-]{8,}",
+        # Lab secrets (defense in depth beyond the 5 required kinds)
+        "admin_password": r"\badmin123\b",
+        "db_host": r"\bdb\.vinbank\.internal(?::\d+)?",
+        # password: "password is X", "password: X", "mật khẩu = X"
+        "password": r"(?:password|passwd|pwd|mật\s*khẩu)\s*(?:is|are|=|:)\s*\S+",
+        # VN phone number (0 + 9-10 digits), not part of a longer number
+        "vn_phone": r"(?<!\d)0\d{9,10}(?!\d)",
+        # Email address
+        "email": r"[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}",
+        # National ID: CMND (9 digits) or CCCD (12 digits)
+        "national_id": r"(?<!\d)(?:\d{9}|\d{12})(?!\d)",
     }
 
     for name, pattern in PII_PATTERNS.items():
@@ -172,16 +181,33 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         if not response_text:
             return llm_response
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
-        # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
+        # 1. Regex PII / secret redaction (deterministic, always on).
+        filtered = content_filter(response_text)
+        if not filtered["safe"]:
+            self.redacted_count += 1
+            if filtered["redacted"] != response_text:
+                llm_response.content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=filtered["redacted"])],
+                )
 
-        return llm_response  # TODO: modify if needed
+        # 2. Optional LLM-as-Judge (only if a judge agent is configured).
+        if self.use_llm_judge:
+            verdict = await llm_safety_check(response_text)
+            if not verdict["safe"]:
+                self.blocked_count += 1
+                llm_response.content = types.Content(
+                    role="model",
+                    parts=[
+                        types.Part.from_text(
+                            text="I cannot share that information. "
+                            "How else can I help with your VinBank "
+                            "account or banking needs?"
+                        )
+                    ],
+                )
+
+        return llm_response
 
 
 # ============================================================
